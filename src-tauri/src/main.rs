@@ -101,9 +101,8 @@ fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<AppSett
 fn load_profiles(app: tauri::AppHandle) -> Result<Vec<CloneProfile>, String> {
     let path = config_path(&app)?;
     if !path.exists() {
-        let defaults = default_profiles();
-        save_profiles_to_path(&path, &defaults)?;
-        return Ok(defaults);
+        save_profiles_to_path(&path, &[])?;
+        return Ok(Vec::new());
     }
 
     let data = fs::read_to_string(path).map_err(|err| err.to_string())?;
@@ -392,27 +391,6 @@ fn default_settings() -> AppSettings {
 
 fn default_install_dir() -> String {
     "/Applications".to_string()
-}
-
-fn default_profiles() -> Vec<CloneProfile> {
-    vec![
-        CloneProfile {
-            id: "clone-1".to_string(),
-            name: "微信1".to_string(),
-            bundle_id: "net.maclub.wechat.clone1".to_string(),
-            source_path: DEFAULT_SOURCE.to_string(),
-            install_dir: "/Applications".to_string(),
-            enabled: true,
-        },
-        CloneProfile {
-            id: "clone-2".to_string(),
-            name: "微信2".to_string(),
-            bundle_id: "net.maclub.wechat.clone2".to_string(),
-            source_path: DEFAULT_SOURCE.to_string(),
-            install_dir: "/Applications".to_string(),
-            enabled: true,
-        },
-    ]
 }
 
 fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {

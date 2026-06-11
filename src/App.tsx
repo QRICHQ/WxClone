@@ -112,14 +112,8 @@ function appPathFor(profile: Pick<CloneProfile, "name" | "install_dir">) {
 }
 
 function defaultProfiles(settings = DEFAULT_SETTINGS): CloneProfile[] {
-  return [1, 2].map((index) => ({
-    id: `clone-${index}`,
-    name: `${settings.base_name}${index}`,
-    bundle_id: `${settings.base_bundle_id}.clone${index}`,
-    source_path: settings.source_path,
-    install_dir: INSTALL_HINT,
-    enabled: true,
-  }))
+  void settings
+  return []
 }
 
 function nextIndex(profiles: CloneProfile[]) {
