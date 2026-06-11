@@ -31,3 +31,9 @@ pnpm tauri:build
 ## 说明
 
 同步副本时需要写入 `/Applications` 并重新签名应用，因此 macOS 会弹出管理员授权。该工具只重建应用包，不会删除微信聊天记录。微信升级后，重新打开 WxClone 点击“同步全部”即可让副本跟随新版应用。
+
+管理员脚本的详细执行日志会追加保存到：
+
+```text
+~/Library/Logs/com.richqaq.wxclone/wxclone.log
+```

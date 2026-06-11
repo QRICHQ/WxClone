@@ -1,7 +1,8 @@
-use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose, Engine as _};
+use serde::{Deserialize, Serialize};
 use std::{
-    fs,
+    fs::{self, OpenOptions},
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -11,6 +12,8 @@ use tauri::Manager;
 const DEFAULT_SOURCE: &str = "/Applications/WeChat.app";
 const CONFIG_FILE: &str = "profiles.json";
 const SETTINGS_FILE: &str = "settings.json";
+const LOG_DIR_NAME: &str = "com.richqaq.wxclone";
+const LOG_FILE_NAME: &str = "wxclone.log";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CloneProfile {
@@ -541,15 +544,40 @@ fn run_admin_script(script: &str) -> Result<String, String> {
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         eprintln!("{stdout}");
+        append_persistent_log("admin-script stdout", &stdout);
         parse_admin_output(&stdout)
     } else {
         let err = command_error(output.stderr);
+        append_persistent_log("admin-script osascript error", &err);
         if err.contains("-128") {
             Err("已取消管理员授权".to_string())
         } else {
             Err(err)
         }
     }
+}
+
+fn persistent_log_path() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME").ok_or_else(|| "无法读取 HOME 环境变量".to_string())?;
+    Ok(PathBuf::from(home)
+        .join("Library")
+        .join("Logs")
+        .join(LOG_DIR_NAME)
+        .join(LOG_FILE_NAME))
+}
+
+fn append_persistent_log(label: &str, content: &str) {
+    let Ok(path) = persistent_log_path() else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) else {
+        return;
+    };
+    let _ = writeln!(file, "\n=== {label} @ {} ===", timestamp_millis());
+    let _ = writeln!(file, "{content}");
 }
 
 fn parse_admin_output(output: &str) -> Result<String, String> {
