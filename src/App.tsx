@@ -472,7 +472,12 @@ export default function App() {
         const result = await callCommand<OperationResult>("sync_profile", {
           profile: draft,
         })
-        notify(`已创建 ${draft.name}`, result.app_path)
+        try {
+          await callCommand("launch_profile", { profile: draft })
+          notify(`已创建并启动 ${draft.name}`, result.app_path)
+        } catch (launchErr) {
+          notify(`已创建 ${draft.name}，但启动失败`, String(launchErr), "destructive")
+        }
       } catch (syncErr) {
         const rolledBack = saved.filter((profile) => profile.id !== draft.id)
         await callCommand<CloneProfile[]>("save_profiles", {
@@ -531,7 +536,19 @@ export default function App() {
       if (!runningApps.some((info) => info.bundle_id === profile.bundle_id)) continue
       await callCommand<RunningAppInfo>("quit_running_profile", { profile })
     }
-    return true
+    return runningApps
+  }
+
+  async function launchProfilesAfterSync(targetProfiles: CloneProfile[]) {
+    const failures: string[] = []
+    for (const profile of targetProfiles) {
+      try {
+        await callCommand("launch_profile", { profile })
+      } catch {
+        failures.push(profile.name)
+      }
+    }
+    return failures
   }
 
   async function syncOne(profile: CloneProfile) {
@@ -539,11 +556,18 @@ export default function App() {
       const saved = await saveProfiles()
       const current = saved.find((item) => item.id === profile.id)
       if (!current) return
-      const canSync = await prepareProfilesForSync([current])
-      if (!canSync) return
+      const runningBeforeSync = await prepareProfilesForSync([current])
+      if (!runningBeforeSync) return
       const result = await callCommand<OperationResult>("sync_profile", {
         profile: current,
       })
+      if (runningBeforeSync !== true) {
+        const launchFailures = await launchProfilesAfterSync([current])
+        if (launchFailures.length > 0) {
+          notify(`已同步 ${current.name}，但重新启动失败`, result.app_path, "destructive")
+          return
+        }
+      }
       notify(`已同步版本 ${current.name}`, result.app_path)
     }).catch(notifyError)
   }
@@ -552,11 +576,25 @@ export default function App() {
     await runBusy("sync-all", async () => {
       const saved = await saveProfiles()
       const enabledProfiles = saved.filter((profile) => profile.enabled)
-      const canSync = await prepareProfilesForSync(enabledProfiles)
-      if (!canSync) return
+      const runningBeforeSync = await prepareProfilesForSync(enabledProfiles)
+      if (!runningBeforeSync) return
       const results = await callCommand<OperationResult[]>("sync_all", {
         profiles: saved,
       })
+      if (runningBeforeSync !== true) {
+        const runningBundleIds = new Set(runningBeforeSync.map((info) => info.bundle_id))
+        const launchFailures = await launchProfilesAfterSync(
+          enabledProfiles.filter((profile) => runningBundleIds.has(profile.bundle_id)),
+        )
+        if (launchFailures.length > 0) {
+          notify(
+            "版本同步完成，但部分副本重新启动失败",
+            launchFailures.join("、"),
+            "destructive",
+          )
+          return
+        }
+      }
       notify("版本同步完成", `已同步 ${results.length} 个微信副本`)
     }).catch(notifyError)
   }
