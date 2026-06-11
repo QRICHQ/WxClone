@@ -52,4 +52,4 @@ jobs:
           releaseBody: "自动构建的 macOS 安装包。"
           releaseDraft: true
           prerelease: false
-          args: --target universal-apple-darwin
+          args: --target universal-apple-darwin --ci -v
