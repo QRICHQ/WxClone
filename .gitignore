@@ -1,1 +1,9 @@
 .DS_Store
+node_modules
+.vite
+dist
+dist-ssr
+src-tauri/target
+*.log
+.env
+.env.*
