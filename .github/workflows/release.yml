@@ -52,4 +52,41 @@ jobs:
           releaseBody: "自动构建的 macOS 安装包。"
           releaseDraft: true
           prerelease: false
-          args: --target universal-apple-darwin --ci -v
+          args: --target universal-apple-darwin --ci -v --bundles app
+
+      - name: Create DMG package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          app_path="src-tauri/target/universal-apple-darwin/release/bundle/macos/WxClone.app"
+          dmg_dir="src-tauri/target/universal-apple-darwin/release/bundle/dmg"
+          dmg_path="${dmg_dir}/WxClone_${GITHUB_REF_NAME#v}_universal.dmg"
+          staging_dir="${RUNNER_TEMP}/wxclone-dmg"
+
+          test -d "$app_path"
+          rm -rf "$staging_dir" "$dmg_path"
+          mkdir -p "$staging_dir" "$dmg_dir"
+
+          ditto "$app_path" "$staging_dir/WxClone.app"
+          ln -s /Applications "$staging_dir/Applications"
+
+          hdiutil detach "/Volumes/WxClone" -force || true
+          for attempt in 1 2 3; do
+            echo "Creating DMG, attempt ${attempt}"
+            if hdiutil create -volname "WxClone" -srcfolder "$staging_dir" -ov -format UDZO "$dmg_path"; then
+              echo "DMG_PATH=$dmg_path" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            hdiutil detach "/Volumes/WxClone" -force || true
+            hdiutil info || true
+            sleep $((attempt * 5))
+          done
+
+          echo "Failed to create DMG after retries" >&2
+          exit 1
+
+      - name: Upload DMG to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" "$DMG_PATH" --clobber
