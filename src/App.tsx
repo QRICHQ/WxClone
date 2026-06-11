@@ -71,6 +71,14 @@ type ConflictInfo = {
   bundle_id_at_target?: string | null
 }
 
+type RunningAppInfo = {
+  name: string
+  bundle_id: string
+  app_path: string
+  is_running: boolean
+  process_count: number
+}
+
 type IconInfo = {
   data_url: string
 }
@@ -89,6 +97,11 @@ type ToastState = {
   variant?: "default" | "destructive"
   actionUrl?: string
   actionLabel?: string
+}
+
+type SyncConfirmState = {
+  runningApps: RunningAppInfo[]
+  resolve: (confirmed: boolean) => void
 }
 
 const SOURCE_HINT = "/Applications/WeChat.app"
@@ -225,6 +238,28 @@ async function callCommand<T>(command: string, args?: Record<string, unknown>) {
     return null as T
   }
 
+  if (command === "check_running_profile") {
+    const profile = args?.profile as CloneProfile
+    return {
+      name: profile.name,
+      bundle_id: profile.bundle_id,
+      app_path: appPathFor(profile),
+      is_running: false,
+      process_count: 0,
+    } as T
+  }
+
+  if (command === "quit_running_profile") {
+    const profile = args?.profile as CloneProfile
+    return {
+      name: profile.name,
+      bundle_id: profile.bundle_id,
+      app_path: appPathFor(profile),
+      is_running: false,
+      process_count: 0,
+    } as T
+  }
+
   if (command === "sync_profile") {
     const profile = args?.profile as CloneProfile
     return {
@@ -275,6 +310,7 @@ export default function App() {
   const [sourceIconPath, setSourceIconPath] = useState<string | null>(null)
   const [profileIconPaths, setProfileIconPaths] = useState<Record<string, string | null>>({})
   const [toast, setToast] = useState<ToastState | null>(null)
+  const [syncConfirm, setSyncConfirm] = useState<SyncConfirmState | null>(null)
 
   const enabledCount = useMemo(
     () => profiles.filter((profile) => profile.enabled).length,
@@ -467,11 +503,44 @@ export default function App() {
     return saved
   }
 
+  async function confirmQuitRunningApps(runningApps: RunningAppInfo[]) {
+    return new Promise<boolean>((resolve) => {
+      setSyncConfirm({ runningApps, resolve })
+    })
+  }
+
+  function closeSyncConfirm(confirmed: boolean) {
+    syncConfirm?.resolve(confirmed)
+    setSyncConfirm(null)
+  }
+
+  async function prepareProfilesForSync(targetProfiles: CloneProfile[]) {
+    const runningApps = (
+      await Promise.all(
+        targetProfiles.map((profile) =>
+          callCommand<RunningAppInfo>("check_running_profile", { profile }),
+        ),
+      )
+    ).filter((info) => info.is_running)
+
+    if (runningApps.length === 0) return true
+    const confirmed = await confirmQuitRunningApps(runningApps)
+    if (!confirmed) return false
+
+    for (const profile of targetProfiles) {
+      if (!runningApps.some((info) => info.bundle_id === profile.bundle_id)) continue
+      await callCommand<RunningAppInfo>("quit_running_profile", { profile })
+    }
+    return true
+  }
+
   async function syncOne(profile: CloneProfile) {
     await runBusy(profileBusyKey("sync", profile), async () => {
       const saved = await saveProfiles()
       const current = saved.find((item) => item.id === profile.id)
       if (!current) return
+      const canSync = await prepareProfilesForSync([current])
+      if (!canSync) return
       const result = await callCommand<OperationResult>("sync_profile", {
         profile: current,
       })
@@ -482,6 +551,9 @@ export default function App() {
   async function syncEnabled() {
     await runBusy("sync-all", async () => {
       const saved = await saveProfiles()
+      const enabledProfiles = saved.filter((profile) => profile.enabled)
+      const canSync = await prepareProfilesForSync(enabledProfiles)
+      if (!canSync) return
       const results = await callCommand<OperationResult[]>("sync_all", {
         profiles: saved,
       })
@@ -622,6 +694,12 @@ export default function App() {
         busyKeys={busyKeys}
         onCreate={createProfile}
         onChooseSource={(callback) => void chooseSourcePath(callback)}
+      />
+      <SyncQuitConfirmDialog
+        open={Boolean(syncConfirm)}
+        runningApps={syncConfirm?.runningApps ?? []}
+        onCancel={() => closeSyncConfirm(false)}
+        onConfirm={() => closeSyncConfirm(true)}
       />
     </main>
   )
@@ -1069,6 +1147,55 @@ function CreateDialog({
             ) : null}
             创建配置
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function SyncQuitConfirmDialog({
+  open,
+  runningApps,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean
+  runningApps: RunningAppInfo[]
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const title =
+    runningApps.length > 1 ? "退出正在运行的副本" : `退出 ${runningApps[0]?.name ?? "副本"}`
+
+  return (
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onCancel()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            同步会替换应用文件。请先退出正在运行的副本，确认后 WxClone 会自动退出它们再继续同步。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-2">
+          {runningApps.map((app) => (
+            <div key={app.bundle_id} className="rounded-md border bg-muted/50 px-3 py-2">
+              <div className="text-sm font-medium">{app.name}</div>
+              <div className="mt-1 truncate text-xs text-muted-foreground">
+                {app.app_path}
+              </div>
+              <div className="mt-1 truncate text-xs text-muted-foreground">
+                {app.bundle_id}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
+            取消同步
+          </Button>
+          <Button onClick={onConfirm}>退出并同步</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

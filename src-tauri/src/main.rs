@@ -58,6 +58,15 @@ struct ConflictInfo {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct RunningAppInfo {
+    name: String,
+    bundle_id: String,
+    app_path: String,
+    is_running: bool,
+    process_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct IconInfo {
     data_url: String,
 }
@@ -244,6 +253,14 @@ async fn sync_profile(profile: CloneProfile) -> Result<OperationResult, String> 
 fn sync_profile_blocking(profile: CloneProfile) -> Result<OperationResult, String> {
     let profile = normalize_profile(profile)?;
     let app_path = app_path_for(&profile.install_dir, &profile.name);
+    let running = running_info_for_profile(&profile, &app_path);
+    if running.is_running {
+        return Err(format!(
+            "{} 正在运行，请先退出该应用后再同步。",
+            profile.name
+        ));
+    }
+
     let script = format!(
         r#"#!/bin/sh
 set -u
@@ -351,6 +368,182 @@ fn sync_all_blocking(profiles: Vec<CloneProfile>) -> Result<Vec<OperationResult>
         results.push(sync_profile_blocking(profile)?);
     }
     Ok(results)
+}
+
+#[tauri::command]
+fn check_running_profile(profile: CloneProfile) -> Result<RunningAppInfo, String> {
+    let profile = normalize_profile(profile)?;
+    let app_path = app_path_for(&profile.install_dir, &profile.name);
+    Ok(running_info_for_profile(&profile, &app_path))
+}
+
+#[tauri::command]
+async fn quit_running_profile(profile: CloneProfile) -> Result<RunningAppInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || quit_running_profile_blocking(profile))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+fn quit_running_profile_blocking(profile: CloneProfile) -> Result<RunningAppInfo, String> {
+    let profile = normalize_profile(profile)?;
+    let app_path = app_path_for(&profile.install_dir, &profile.name);
+    let running = running_info_for_profile(&profile, &app_path);
+    if !running.is_running {
+        return Ok(running);
+    }
+
+    let script = format!(
+        "tell application id {} to quit",
+        applescript_string(&profile.bundle_id)
+    );
+    let quit_output = Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(script)
+        .output();
+    if let Ok(output) = quit_output {
+        if !output.status.success() {
+            append_persistent_log("quit osascript error", &command_error(output.stderr));
+        }
+    }
+
+    let after_graceful = wait_for_profile_exit(&profile, &app_path, 8, 350);
+    if !after_graceful.is_running {
+        return Ok(after_graceful);
+    }
+
+    terminate_profile(&profile, &app_path, false);
+    let after_term = wait_for_profile_exit(&profile, &app_path, 6, 350);
+    if !after_term.is_running {
+        return Ok(after_term);
+    }
+
+    terminate_profile(&profile, &app_path, true);
+    let after_kill = wait_for_profile_exit(&profile, &app_path, 6, 350);
+    if after_kill.is_running {
+        return Err(format!(
+            "{} 仍在运行，已停止同步。请手动退出后重试。",
+            profile.name
+        ));
+    }
+    Ok(after_kill)
+}
+
+fn wait_for_profile_exit(
+    profile: &CloneProfile,
+    app_path: &str,
+    attempts: usize,
+    interval_ms: u64,
+) -> RunningAppInfo {
+    let mut current = running_info_for_profile(profile, app_path);
+    for _ in 0..attempts {
+        if !current.is_running {
+            return current;
+        }
+        std::thread::sleep(Duration::from_millis(interval_ms));
+        current = running_info_for_profile(profile, app_path);
+    }
+    current
+}
+
+fn terminate_profile(profile: &CloneProfile, app_path: &str, hard: bool) {
+    for asn in running_bundle_asns(&profile.bundle_id) {
+        let mut command = Command::new("/usr/bin/lsappinfo");
+        command.arg("kill");
+        if hard {
+            command.arg("-hard");
+        }
+        let _ = command.arg(&asn).output();
+    }
+
+    for pid in running_pids_for_app_path(app_path) {
+        let signal = if hard { "-KILL" } else { "-TERM" };
+        let _ = Command::new("/bin/kill")
+            .arg(signal)
+            .arg(pid.to_string())
+            .output();
+    }
+}
+
+fn running_info_for_profile(profile: &CloneProfile, app_path: &str) -> RunningAppInfo {
+    let has_launch_services_entry = !running_bundle_asns(&profile.bundle_id).is_empty();
+    let mut pids = running_pids_for_app_path(app_path);
+    pids.sort_unstable();
+    pids.dedup();
+    let is_running = has_launch_services_entry || !pids.is_empty();
+
+    RunningAppInfo {
+        name: profile.name.clone(),
+        bundle_id: profile.bundle_id.clone(),
+        app_path: app_path.to_string(),
+        is_running,
+        process_count: if pids.is_empty() && has_launch_services_entry {
+            1
+        } else {
+            pids.len()
+        },
+    }
+}
+
+fn running_bundle_asns(bundle_id: &str) -> Vec<String> {
+    let output = Command::new("/usr/bin/lsappinfo")
+        .arg("find")
+        .arg(format!("bundleid={bundle_id}"))
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn running_pids_for_app_path(app_path: &str) -> Vec<u32> {
+    let executable_dir = Path::new(app_path).join("Contents/MacOS");
+    let executable_prefix = format!(
+        "{}/",
+        executable_dir.to_string_lossy().trim_end_matches('/')
+    );
+    let output = Command::new("/bin/ps")
+        .arg("-axo")
+        .arg("pid=,command=")
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| split_pid_command(line))
+        .filter_map(|(pid, command)| {
+            if command.starts_with(&executable_prefix) {
+                Some(pid)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn split_pid_command(line: &str) -> Option<(u32, String)> {
+    let trimmed = line.trim_start();
+    let split_index = trimmed.find(char::is_whitespace)?;
+    let pid = trimmed[..split_index].trim().parse::<u32>().ok()?;
+    let command = trimmed[split_index..].trim_start().to_string();
+    if command.is_empty() {
+        None
+    } else {
+        Some((pid, command))
+    }
 }
 
 #[tauri::command]
@@ -822,6 +1015,8 @@ fn main() {
             save_profiles,
             sync_profile,
             sync_all,
+            check_running_profile,
+            quit_running_profile,
             launch_profile,
             remove_profile_app,
             choose_source_app,
