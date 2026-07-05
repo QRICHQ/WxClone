@@ -6,7 +6,7 @@ use tauri::Manager;
 use crate::{
     models::{
         normalize_profile, normalize_profiles, CloneProfile, ConflictInfo, EnvironmentInfo,
-        IconInfo, OperationResult, RunningAppInfo, DEFAULT_SOURCE,
+        IconInfo, OperationResult, ProfileAppInfo, RunningAppInfo, DEFAULT_SOURCE,
     },
     utils::{
         app_path_for, append_persistent_log, applescript_string, command_error, plist_value,
@@ -168,6 +168,23 @@ pub(crate) fn check_running_profile(profile: CloneProfile) -> Result<RunningAppI
     let profile = normalize_profile(profile)?;
     let app_path = app_path_for(&profile.install_dir, &profile.name);
     Ok(running_info_for_profile(&profile, &app_path))
+}
+
+pub(crate) fn check_profile_app_info(profile: CloneProfile) -> Result<ProfileAppInfo, String> {
+    let profile = normalize_profile(profile)?;
+    let app_path = app_path_for(&profile.install_dir, &profile.name);
+    Ok(profile_app_info_at_path(&app_path))
+}
+
+pub(crate) fn profile_app_info_at_path(app_path: &str) -> ProfileAppInfo {
+    let info_plist = Path::new(app_path).join("Contents/Info.plist");
+    ProfileAppInfo {
+        app_path: app_path.to_string(),
+        installed: Path::new(app_path).is_dir(),
+        bundle_id: plist_value(&info_plist, "CFBundleIdentifier"),
+        version: plist_value(&info_plist, "CFBundleShortVersionString")
+            .or_else(|| plist_value(&info_plist, "CFBundleVersion")),
+    }
 }
 
 pub(crate) fn quit_running_profile_blocking(
@@ -481,4 +498,42 @@ pub(crate) fn check_profile_conflict(profile: CloneProfile) -> Result<ConflictIn
         target_exists,
         bundle_id_at_target: plist_value(&info_plist, "CFBundleIdentifier"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_app_info_reads_installed_clone_version() {
+        let root =
+            std::env::temp_dir().join(format!("wxclone-test-{}", crate::utils::timestamp_millis()));
+        let app_path = root.join("微信1.app");
+        let contents = app_path.join("Contents");
+        fs::create_dir_all(&contents).unwrap();
+        fs::write(
+            contents.join("Info.plist"),
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>net.maclub.wechat.clone1</string>
+  <key>CFBundleShortVersionString</key>
+  <string>4.0.6</string>
+</dict>
+</plist>
+"#,
+        )
+        .unwrap();
+
+        let info = profile_app_info_at_path(app_path.to_str().unwrap());
+
+        assert_eq!(info.app_path, app_path.to_string_lossy());
+        assert!(info.installed);
+        assert_eq!(info.bundle_id.as_deref(), Some("net.maclub.wechat.clone1"));
+        assert_eq!(info.version.as_deref(), Some("4.0.6"));
+
+        let _ = fs::remove_dir_all(root);
+    }
 }

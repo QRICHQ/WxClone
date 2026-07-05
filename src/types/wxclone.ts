@@ -34,6 +34,13 @@ export type ConflictInfo = {
   bundle_id_at_target?: string | null
 }
 
+export type ProfileAppInfo = {
+  app_path: string
+  installed: boolean
+  bundle_id?: string | null
+  version?: string | null
+}
+
 export type RunningAppInfo = {
   name: string
   bundle_id: string

@@ -119,3 +119,10 @@ pub(crate) fn check_profile_conflict(
 ) -> Result<crate::models::ConflictInfo, String> {
     platform::check_profile_conflict(profile)
 }
+
+#[tauri::command]
+pub(crate) fn check_profile_app_info(
+    profile: CloneProfile,
+) -> Result<crate::models::ProfileAppInfo, String> {
+    platform::check_profile_app_info(profile)
+}

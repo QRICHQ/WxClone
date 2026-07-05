@@ -22,7 +22,7 @@ export default function App() {
             <div>
               <h1 className="text-2xl font-semibold tracking-normal">WxClone</h1>
               <p className="text-sm text-muted-foreground">
-                多开微信副本，升级后快速同步。
+                轻松多开微信，升级同步不折腾。
               </p>
             </div>
           </div>
@@ -48,6 +48,7 @@ export default function App() {
           <HomeView
             environment={controller.environment}
             profiles={controller.profiles}
+            profileAppInfos={controller.profileAppInfos}
             enabledCount={controller.enabledCount}
             busyKeys={controller.busyKeys}
             sourceIconPath={controller.sourceIconPath}

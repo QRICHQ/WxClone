@@ -92,6 +92,16 @@ async function callMockCommand<T>(command: string, args?: Record<string, unknown
     } as T
   }
 
+  if (command === "check_profile_app_info") {
+    const profile = args?.profile as CloneProfile
+    return {
+      app_path: appPathFor(profile),
+      installed: true,
+      bundle_id: profile.bundle_id,
+      version: "浏览器预览",
+    } as T
+  }
+
   if (command === "choose_source_app") {
     return null as T
   }

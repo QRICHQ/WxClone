@@ -9,11 +9,12 @@ import {
   profileBusyKey,
   SOURCE_HINT,
 } from "@/domain/profiles"
-import type { CloneProfile, EnvironmentInfo } from "@/types/wxclone"
+import type { CloneProfile, EnvironmentInfo, ProfileAppInfo } from "@/types/wxclone"
 
 export function HomeView({
   environment,
   profiles,
+  profileAppInfos,
   enabledCount,
   busyKeys,
   sourceIconPath,
@@ -28,6 +29,7 @@ export function HomeView({
 }: {
   environment: EnvironmentInfo | null
   profiles: CloneProfile[]
+  profileAppInfos: Record<string, ProfileAppInfo>
   enabledCount: number
   busyKeys: string[]
   sourceIconPath: string | null
@@ -117,6 +119,7 @@ export function HomeView({
 
         <div className="flex flex-col gap-2">
           {profiles.map((profile) => {
+            const appInfo = profileAppInfos[profile.id]
             const launchBusy = busyKeys.includes(profileBusyKey("launch", profile))
             const syncBusy = busyKeys.includes(profileBusyKey("sync", profile))
             const deleteBusy = busyKeys.includes(profileBusyKey("delete", profile))
@@ -145,6 +148,17 @@ export function HomeView({
                     <Badge variant="secondary" className="shrink-0">
                       {profile.enabled ? "参与批量同步" : "跳过批量同步"}
                     </Badge>
+                    {appInfo ? (
+                      appInfo.installed ? (
+                        <Badge variant="outline" className="shrink-0">
+                          {appInfo.version ? `版本 ${appInfo.version}` : "版本未知"}
+                        </Badge>
+                      ) : (
+                        <Badge variant="destructive" className="shrink-0">
+                          未安装
+                        </Badge>
+                      )
+                    ) : null}
                   </div>
                   <div className="mt-2 min-w-0 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
                     <span className="block truncate">{appPathFor(profile)}</span>

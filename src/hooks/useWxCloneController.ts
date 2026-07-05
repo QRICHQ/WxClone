@@ -17,6 +17,7 @@ import type {
   ConflictInfo,
   EnvironmentInfo,
   OperationResult,
+  ProfileAppInfo,
   RunningAppInfo,
   SyncConfirmState,
   ToastState,
@@ -30,6 +31,7 @@ export function useWxCloneController() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
   const [appVersion, setAppVersion] = useState("")
   const [profiles, setProfiles] = useState<CloneProfile[]>([])
+  const [profileAppInfos, setProfileAppInfos] = useState<Record<string, ProfileAppInfo>>({})
   const [draft, setDraft] = useState<CloneProfile | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [createError, setCreateError] = useState("")
@@ -75,8 +77,33 @@ export function useWxCloneController() {
       setSettings({ ...loadedSettings, install_dir: INSTALL_HINT })
       setEnvironment(env)
       setProfiles(loadedProfiles)
+      await loadProfileAppInfos(loadedProfiles)
       setAppVersion(version)
     }).catch(notifyError)
+  }
+
+  async function loadProfileAppInfos(targetProfiles: CloneProfile[]) {
+    const entries = await Promise.all(
+      targetProfiles.map(async (profile) => {
+        try {
+          const info = await callCommand<ProfileAppInfo>("check_profile_app_info", {
+            profile,
+          })
+          return [profile.id, info] as const
+        } catch {
+          return [
+            profile.id,
+            {
+              app_path: appPathFor(profile),
+              installed: false,
+              bundle_id: null,
+              version: null,
+            },
+          ] as const
+        }
+      }),
+    )
+    setProfileAppInfos(Object.fromEntries(entries))
   }
 
   async function loadIcons() {
@@ -185,8 +212,10 @@ export function useWxCloneController() {
           profiles: rolledBack,
         })
         setProfiles(rolledBack)
+        await loadProfileAppInfos(rolledBack)
         throw syncErr
       }
+      await loadProfileAppInfos(saved)
       setCreateOpen(false)
       setDraft(null)
     }).catch(notifyError)
@@ -262,6 +291,7 @@ export function useWxCloneController() {
       const result = await callCommand<OperationResult>("sync_profile", {
         profile: current,
       })
+      await loadProfileAppInfos(saved)
       if (runningBeforeSync !== true) {
         const launchFailures = await launchProfilesAfterSync([current])
         if (launchFailures.length > 0) {
@@ -282,6 +312,7 @@ export function useWxCloneController() {
       const results = await callCommand<OperationResult[]>("sync_all", {
         profiles: saved,
       })
+      await loadProfileAppInfos(saved)
       if (runningBeforeSync !== true) {
         const runningBundleIds = new Set(runningBeforeSync.map((info) => info.bundle_id))
         const launchFailures = await launchProfilesAfterSync(
@@ -312,6 +343,11 @@ export function useWxCloneController() {
       await callCommand("remove_profile_app", { profile })
       const nextProfiles = profiles.filter((item) => item.id !== profile.id)
       await saveProfiles(nextProfiles)
+      setProfileAppInfos((current) => {
+        const next = { ...current }
+        delete next[profile.id]
+        return next
+      })
       notify("已删除", profile.name)
     }).catch(notifyError)
   }
@@ -360,6 +396,7 @@ export function useWxCloneController() {
     setSettings,
     appVersion,
     profiles,
+    profileAppInfos,
     draft,
     createOpen,
     setCreateOpen,

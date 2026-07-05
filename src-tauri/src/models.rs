@@ -45,6 +45,14 @@ pub(crate) struct ConflictInfo {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub(crate) struct ProfileAppInfo {
+    pub(crate) app_path: String,
+    pub(crate) installed: bool,
+    pub(crate) bundle_id: Option<String>,
+    pub(crate) version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct RunningAppInfo {
     pub(crate) name: String,
     pub(crate) bundle_id: String,
