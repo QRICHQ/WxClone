@@ -18,8 +18,9 @@ import type {
   EnvironmentInfo,
   OperationResult,
   ProfileAppInfo,
+  QuitAction,
+  QuitConfirmState,
   RunningAppInfo,
-  SyncConfirmState,
   ToastState,
   UpdateInfo,
 } from "@/types/wxclone"
@@ -38,7 +39,7 @@ export function useWxCloneController() {
   const [sourceIconPath, setSourceIconPath] = useState<string | null>(null)
   const [profileIconPaths, setProfileIconPaths] = useState<Record<string, string | null>>({})
   const [toast, setToast] = useState<ToastState | null>(null)
-  const [syncConfirm, setSyncConfirm] = useState<SyncConfirmState | null>(null)
+  const [quitConfirm, setQuitConfirm] = useState<QuitConfirmState | null>(null)
   const { busyKeys, runBusy } = useBusyKeys()
 
   const enabledCount = useMemo(
@@ -238,18 +239,24 @@ export function useWxCloneController() {
     return saved
   }
 
-  async function confirmQuitRunningApps(runningApps: RunningAppInfo[]) {
+  async function confirmQuitRunningApps(
+    runningApps: RunningAppInfo[],
+    action: QuitAction,
+  ) {
     return new Promise<boolean>((resolve) => {
-      setSyncConfirm({ runningApps, resolve })
+      setQuitConfirm({ action, runningApps, resolve })
     })
   }
 
-  function closeSyncConfirm(confirmed: boolean) {
-    syncConfirm?.resolve(confirmed)
-    setSyncConfirm(null)
+  function closeQuitConfirm(confirmed: boolean) {
+    quitConfirm?.resolve(confirmed)
+    setQuitConfirm(null)
   }
 
-  async function prepareProfilesForSync(targetProfiles: CloneProfile[]) {
+  async function prepareProfilesForAction(
+    targetProfiles: CloneProfile[],
+    action: QuitAction,
+  ) {
     const runningApps = (
       await Promise.all(
         targetProfiles.map((profile) =>
@@ -259,7 +266,7 @@ export function useWxCloneController() {
     ).filter((info) => info.is_running)
 
     if (runningApps.length === 0) return true
-    const confirmed = await confirmQuitRunningApps(runningApps)
+    const confirmed = await confirmQuitRunningApps(runningApps, action)
     if (!confirmed) return false
 
     for (const profile of targetProfiles) {
@@ -286,7 +293,7 @@ export function useWxCloneController() {
       const saved = await saveProfiles()
       const current = saved.find((item) => item.id === profile.id)
       if (!current) return
-      const runningBeforeSync = await prepareProfilesForSync([current])
+      const runningBeforeSync = await prepareProfilesForAction([current], "sync")
       if (!runningBeforeSync) return
       const result = await callCommand<OperationResult>("sync_profile", {
         profile: current,
@@ -307,7 +314,7 @@ export function useWxCloneController() {
     await runBusy("sync-all", async () => {
       const saved = await saveProfiles()
       const enabledProfiles = saved.filter((profile) => profile.enabled)
-      const runningBeforeSync = await prepareProfilesForSync(enabledProfiles)
+      const runningBeforeSync = await prepareProfilesForAction(enabledProfiles, "sync")
       if (!runningBeforeSync) return
       const results = await callCommand<OperationResult[]>("sync_all", {
         profiles: saved,
@@ -340,6 +347,8 @@ export function useWxCloneController() {
 
   async function deleteProfile(profile: CloneProfile) {
     await runBusy(profileBusyKey("delete", profile), async () => {
+      const readyToDelete = await prepareProfilesForAction([profile], "delete")
+      if (!readyToDelete) return
       await callCommand("remove_profile_app", { profile })
       const nextProfiles = profiles.filter((item) => item.id !== profile.id)
       await saveProfiles(nextProfiles)
@@ -406,14 +415,14 @@ export function useWxCloneController() {
     profileIconPaths,
     toast,
     setToast,
-    syncConfirm,
+    quitConfirm,
     enabledCount,
     refresh,
     openCreateDialog,
     updateDraft,
     createProfile,
     saveCurrentSettings,
-    closeSyncConfirm,
+    closeQuitConfirm,
     syncEnabled,
     launch,
     syncOne,

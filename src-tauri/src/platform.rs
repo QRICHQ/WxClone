@@ -374,6 +374,11 @@ pub(crate) fn launch_profile(profile: CloneProfile) -> Result<(), String> {
 pub(crate) fn remove_profile_app_blocking(profile: CloneProfile) -> Result<(), String> {
     let profile = normalize_profile(profile)?;
     let app_path = app_path_for(&profile.install_dir, &profile.name);
+    let running = running_info_for_profile(&profile, &app_path);
+    if running.is_running {
+        quit_running_profile_blocking(profile.clone())?;
+    }
+
     let script = format!(
         r#"#!/bin/sh
 set -eu

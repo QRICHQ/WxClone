@@ -7,21 +7,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import type { RunningAppInfo } from "@/types/wxclone"
+import type { QuitAction, RunningAppInfo } from "@/types/wxclone"
 
 export function SyncQuitConfirmDialog({
   open,
+  action,
   runningApps,
   onCancel,
   onConfirm,
 }: {
   open: boolean
+  action: QuitAction
   runningApps: RunningAppInfo[]
   onCancel: () => void
   onConfirm: () => void
 }) {
   const title =
     runningApps.length > 1 ? "退出正在运行的副本" : `退出 ${runningApps[0]?.name ?? "副本"}`
+  const isDelete = action === "delete"
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onCancel()}>
@@ -29,7 +32,9 @@ export function SyncQuitConfirmDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            同步会替换应用文件。请先退出正在运行的副本，确认后 WxClone 会自动退出它们再继续同步。
+            {isDelete
+              ? "删除会移除应用文件。请先退出正在运行的副本，确认后 WxClone 会自动退出它们再继续删除。"
+              : "同步会替换应用文件。请先退出正在运行的副本，确认后 WxClone 会自动退出它们再继续同步。"}
           </DialogDescription>
         </DialogHeader>
 
@@ -49,9 +54,9 @@ export function SyncQuitConfirmDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>
-            取消同步
+            {isDelete ? "取消删除" : "取消同步"}
           </Button>
-          <Button onClick={onConfirm}>退出并同步</Button>
+          <Button onClick={onConfirm}>{isDelete ? "退出并删除" : "退出并同步"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

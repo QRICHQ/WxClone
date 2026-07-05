@@ -92,10 +92,11 @@ export default function App() {
         onChooseSource={(callback) => void controller.chooseSourcePath(callback)}
       />
       <SyncQuitConfirmDialog
-        open={Boolean(controller.syncConfirm)}
-        runningApps={controller.syncConfirm?.runningApps ?? []}
-        onCancel={() => controller.closeSyncConfirm(false)}
-        onConfirm={() => controller.closeSyncConfirm(true)}
+        open={Boolean(controller.quitConfirm)}
+        action={controller.quitConfirm?.action ?? "sync"}
+        runningApps={controller.quitConfirm?.runningApps ?? []}
+        onCancel={() => controller.closeQuitConfirm(false)}
+        onConfirm={() => controller.closeQuitConfirm(true)}
       />
     </main>
   )

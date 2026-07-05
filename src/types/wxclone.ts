@@ -69,7 +69,10 @@ export type ToastState = {
   actionLabel?: string
 }
 
-export type SyncConfirmState = {
+export type QuitAction = "sync" | "delete"
+
+export type QuitConfirmState = {
+  action: QuitAction
   runningApps: RunningAppInfo[]
   resolve: (confirmed: boolean) => void
 }
