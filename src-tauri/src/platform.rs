@@ -14,6 +14,12 @@ use crate::{
     },
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LaunchAction {
+    Open,
+    Reopen,
+}
+
 pub(crate) fn get_environment(source_path: Option<String>) -> EnvironmentInfo {
     let source_path = source_path
         .map(|path| path.trim().to_string())
@@ -357,10 +363,36 @@ pub(crate) fn launch_profile(profile: CloneProfile) -> Result<(), String> {
     if !Path::new(&app_path).is_dir() {
         return Err(format!("未找到应用: {app_path}"));
     }
+    let running = running_info_for_profile(&profile, &app_path);
+    if launch_action_for_running_info(&running) == LaunchAction::Reopen {
+        return reopen_running_profile(&profile);
+    }
 
     let output = Command::new("open")
         .arg("-n")
         .arg(&app_path)
+        .output()
+        .map_err(|err| err.to_string())?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(command_error(output.stderr))
+    }
+}
+
+fn launch_action_for_running_info(running: &RunningAppInfo) -> LaunchAction {
+    if running.is_running {
+        LaunchAction::Reopen
+    } else {
+        LaunchAction::Open
+    }
+}
+
+fn reopen_running_profile(profile: &CloneProfile) -> Result<(), String> {
+    let output = Command::new("/usr/bin/open")
+        .arg("-b")
+        .arg(&profile.bundle_id)
         .output()
         .map_err(|err| err.to_string())?;
 
@@ -540,5 +572,21 @@ mod tests {
         assert_eq!(info.version.as_deref(), Some("4.0.6"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn launch_decision_reopens_profile_when_it_is_already_running() {
+        let running = RunningAppInfo {
+            name: "微信1".to_string(),
+            bundle_id: "net.maclub.wechat.clone1".to_string(),
+            app_path: "/Applications/微信1.app".to_string(),
+            is_running: true,
+            process_count: 1,
+        };
+
+        assert_eq!(
+            launch_action_for_running_info(&running),
+            LaunchAction::Reopen
+        );
     }
 }
